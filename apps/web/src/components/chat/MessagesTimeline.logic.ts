@@ -414,6 +414,20 @@ export function deriveMessagesTimelineRows(input: {
   revertTurnCountByUserMessageId: ReadonlyMap<MessageId, number>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
+  const subAgentEntriesByTurn = new Map<string, WorkLogEntry[]>();
+  for (const timelineEntry of input.timelineEntries) {
+    if (
+      timelineEntry.kind !== "work" ||
+      timelineEntry.entry.itemType !== "collab_agent_tool_call"
+    ) {
+      continue;
+    }
+    const groupKey = String(timelineEntry.entry.turnId ?? "unscoped");
+    const entries = subAgentEntriesByTurn.get(groupKey) ?? [];
+    entries.push(timelineEntry.entry);
+    subAgentEntriesByTurn.set(groupKey, entries);
+  }
+  const renderedSubAgentTurns = new Set<string>();
   const durationStartByMessageId = computeMessageDurationStart(
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
@@ -455,6 +469,23 @@ export function deriveMessagesTimelineRows(input: {
       });
     }
 
+    if (
+      timelineEntry.kind === "work" &&
+      timelineEntry.entry.itemType === "collab_agent_tool_call"
+    ) {
+      const groupKey = String(timelineEntry.entry.turnId ?? "unscoped");
+      if (!renderedSubAgentTurns.has(groupKey)) {
+        renderedSubAgentTurns.add(groupKey);
+        nextRows.push({
+          kind: "work",
+          id: `subagents:${groupKey}`,
+          createdAt: timelineEntry.createdAt,
+          groupedEntries: subAgentEntriesByTurn.get(groupKey) ?? [timelineEntry.entry],
+        });
+      }
+      continue;
+    }
+
     if (collapsedEntryIds.has(timelineEntry.id)) {
       continue;
     }
@@ -467,6 +498,7 @@ export function deriveMessagesTimelineRows(input: {
         if (
           !nextEntry ||
           nextEntry.kind !== "work" ||
+          nextEntry.entry.itemType === "collab_agent_tool_call" ||
           collapsedEntryIds.has(nextEntry.id) ||
           foldsByAnchorEntryId.has(nextEntry.id)
         ) {
@@ -476,46 +508,9 @@ export function deriveMessagesTimelineRows(input: {
         cursor += 1;
       }
       const visibleGroupedEntries = groupedEntries.filter(
-        (entry) =>
-          entry.itemType === "collab_agent_tool_call" ||
-          !workEntryIndicatesToolNeutralStatus(entry),
+        (entry) => !workEntryIndicatesToolNeutralStatus(entry),
       );
       if (visibleGroupedEntries.length > 0) {
-        const subAgentEntries = visibleGroupedEntries.filter(
-          (entry) => entry.itemType === "collab_agent_tool_call",
-        );
-        if (subAgentEntries.length > 0) {
-          const regularEntries = visibleGroupedEntries.filter(
-            (entry) => entry.itemType !== "collab_agent_tool_call",
-          );
-          const groupId = `work-group:${timelineEntry.id}`;
-          const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-          const hiddenEntries = regularEntries.slice(0, -MAX_VISIBLE_WORK_LOG_ENTRIES);
-          const visibleEntries = regularEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES);
-          nextRows.push({
-            kind: "work",
-            id: timelineEntry.id,
-            createdAt: timelineEntry.createdAt,
-            groupedEntries: [
-              ...subAgentEntries,
-              ...(expanded ? hiddenEntries : []),
-              ...visibleEntries,
-            ],
-          });
-          if (hiddenEntries.length > 0) {
-            nextRows.push({
-              kind: "work-toggle",
-              id: `work-toggle:${timelineEntry.id}`,
-              createdAt: timelineEntry.createdAt,
-              groupId,
-              hiddenCount: hiddenEntries.length,
-              expanded,
-              onlyToolEntries: regularEntries.every((entry) => workLogEntryIsToolLike(entry)),
-            });
-          }
-          index = cursor - 1;
-          continue;
-        }
         if (visibleGroupedEntries.length <= MAX_VISIBLE_WORK_LOG_ENTRIES) {
           nextRows.push({
             kind: "work",

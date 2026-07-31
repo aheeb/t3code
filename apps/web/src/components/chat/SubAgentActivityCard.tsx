@@ -1,7 +1,15 @@
 import { memo, useMemo, useState } from "react";
-import { BotIcon, ChevronDownIcon } from "lucide-react";
+import { BotIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import type { WorkLogEntry } from "../../session-logic";
 import { cn } from "~/lib/utils";
+import {
+  Sheet,
+  SheetDescription,
+  SheetHeader,
+  SheetPanel,
+  SheetPopup,
+  SheetTitle,
+} from "../ui/sheet";
 import {
   deriveSubAgentActivityView,
   type SubAgentActivityItem,
@@ -86,55 +94,116 @@ function AgentStatusDot({ status }: { status: SubAgentStatus }) {
   );
 }
 
-const SubAgentRow = memo(function SubAgentRow({ agent }: { agent: SubAgentActivityItem }) {
+const SubAgentRow = memo(function SubAgentRow({
+  agent,
+  onOpen,
+}: {
+  agent: SubAgentActivityItem;
+  onOpen: () => void;
+}) {
   const status = STATUS_PRESENTATION[agent.status];
   const metadata = [agent.model, agent.reasoningEffort].filter(Boolean).join(" · ");
   const showLatestInstruction =
     agent.latestInstruction !== null && agent.latestInstruction !== agent.task;
 
   return (
-    <li className="rounded-lg border border-border/55 bg-background/35 px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <AgentStatusDot status={agent.status} />
-        <span className="min-w-0 flex-1 truncate font-medium text-[12px] text-foreground/90">
-          {agent.label}
-        </span>
-        <span className="font-mono text-[10px] text-muted-foreground/45">
-          {shortThreadId(agent.threadId)}
-        </span>
-        <span className={cn("text-[11px] font-medium", status.labelClassName)}>{status.label}</span>
-      </div>
+    <li>
+      <button
+        type="button"
+        className="w-full rounded-lg border border-border/55 bg-background/35 px-3 py-2.5 text-left transition-colors hover:border-border hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+        onClick={onOpen}
+        aria-label={`Open ${agent.label} transcript`}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <AgentStatusDot status={agent.status} />
+          <span className="min-w-0 flex-1 truncate font-medium text-[12px] text-foreground/90">
+            {agent.label}
+          </span>
+          <span className="font-mono text-[10px] text-muted-foreground/45">
+            {shortThreadId(agent.threadId)}
+          </span>
+          <span className={cn("text-[11px] font-medium", status.labelClassName)}>
+            {status.label}
+          </span>
+          <ChevronRightIcon className="size-3.5 text-muted-foreground/45" aria-hidden />
+        </div>
 
-      {metadata ? (
-        <p className="mt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
-          {metadata}
-        </p>
-      ) : null}
-      {agent.task ? (
-        <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground/80">
-          {agent.task}
-        </p>
-      ) : null}
-      {showLatestInstruction ? (
-        <p className="mt-1.5 border-s border-border/70 ps-2 text-[11px] leading-relaxed text-muted-foreground/75">
-          {agent.latestInstruction}
-        </p>
-      ) : null}
-      {agent.message ? (
-        <p
-          className={cn(
-            "mt-2 rounded-md px-2 py-1.5 text-[11px] leading-relaxed",
-            agent.status === "errored" || agent.status === "notFound"
-              ? "bg-destructive/8 text-destructive"
-              : "bg-emerald-500/8 text-foreground/80",
-          )}
-        >
-          {agent.message}
-        </p>
-      ) : null}
+        {metadata ? (
+          <p className="mt-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/50">
+            {metadata}
+          </p>
+        ) : null}
+        {agent.task ? (
+          <p className="mt-1.5 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground/80">
+            {agent.task}
+          </p>
+        ) : null}
+        {showLatestInstruction ? (
+          <p className="mt-1.5 border-s border-border/70 ps-2 text-[11px] leading-relaxed text-muted-foreground/75">
+            {agent.latestInstruction}
+          </p>
+        ) : null}
+        {agent.message ? (
+          <p
+            className={cn(
+              "mt-2 rounded-md px-2 py-1.5 text-[11px] leading-relaxed",
+              agent.status === "errored" || agent.status === "notFound"
+                ? "bg-destructive/8 text-destructive"
+                : "bg-emerald-500/8 text-foreground/80",
+            )}
+          >
+            {agent.message}
+          </p>
+        ) : null}
+      </button>
     </li>
   );
 });
+
+function SubAgentTranscript({ agent }: { agent: SubAgentActivityItem }) {
+  if (agent.transcript.length === 0) {
+    return (
+      <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-border/65 px-6 text-center text-sm text-muted-foreground">
+        Waiting for this sub-agent to produce activity.
+      </div>
+    );
+  }
+
+  return (
+    <ol className="space-y-3" aria-label={`${agent.label} transcript`}>
+      {agent.transcript.map((item) => (
+        <li
+          key={`${item.id}:${item.kind}`}
+          className={cn(
+            "rounded-xl border px-3.5 py-3",
+            item.kind === "assistant" && "border-border/65 bg-background/55",
+            item.kind === "reasoning" && "border-border/45 bg-muted/35 text-muted-foreground",
+            item.kind === "tool" && "border-border/55 bg-accent/15",
+            item.kind === "error" && "border-destructive/30 bg-destructive/8 text-destructive",
+          )}
+        >
+          {item.title ? (
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="font-medium text-[11px] uppercase tracking-wide opacity-70">
+                {item.title}
+              </span>
+              {item.status ? (
+                <span className="text-[10px] text-muted-foreground/60">{item.status}</span>
+              ) : null}
+            </div>
+          ) : null}
+          {item.text ? (
+            <p className="whitespace-pre-wrap break-words text-[12px] leading-relaxed">
+              {item.text}
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground/55">In progress…</p>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export const SubAgentActivityCard = memo(function SubAgentActivityCard({
   entries,
@@ -143,7 +212,9 @@ export const SubAgentActivityCard = memo(function SubAgentActivityCard({
 }) {
   const view = useMemo(() => deriveSubAgentActivityView(entries), [entries]);
   const [expanded, setExpanded] = useState(true);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   if (!view) return null;
+  const selectedAgent = view.agents.find((agent) => agent.threadId === selectedThreadId) ?? null;
 
   const summary = statusSummary({
     total: view.agents.length,
@@ -184,10 +255,45 @@ export const SubAgentActivityCard = memo(function SubAgentActivityCard({
       {expanded ? (
         <ul className="space-y-1.5 border-t border-border/45 p-2" aria-label="Sub-agent status">
           {view.agents.map((agent) => (
-            <SubAgentRow key={agent.threadId} agent={agent} />
+            <SubAgentRow
+              key={agent.threadId}
+              agent={agent}
+              onOpen={() => setSelectedThreadId(agent.threadId)}
+            />
           ))}
         </ul>
       ) : null}
+
+      <Sheet
+        open={selectedAgent !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedThreadId(null);
+        }}
+      >
+        <SheetPopup side="right" className="sm:max-w-xl">
+          {selectedAgent ? (
+            <>
+              <SheetHeader className="border-b border-border/55">
+                <div className="flex items-center gap-2.5 pe-8">
+                  <AgentStatusDot status={selectedAgent.status} />
+                  <SheetTitle className="text-base">{selectedAgent.label}</SheetTitle>
+                </div>
+                <SheetDescription className="font-mono text-[11px]">
+                  {selectedAgent.threadId}
+                </SheetDescription>
+                {selectedAgent.task ? (
+                  <p className="pt-1 text-[12px] leading-relaxed text-foreground/75">
+                    {selectedAgent.task}
+                  </p>
+                ) : null}
+              </SheetHeader>
+              <SheetPanel className="space-y-4">
+                <SubAgentTranscript agent={selectedAgent} />
+              </SheetPanel>
+            </>
+          ) : null}
+        </SheetPopup>
+      </Sheet>
     </section>
   );
 });

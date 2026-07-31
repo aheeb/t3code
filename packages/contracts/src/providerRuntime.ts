@@ -253,6 +253,8 @@ const ProviderRuntimeEventBase = Schema.Struct({
   // populates it (post-slice-4), routing flips to instance-id-only.
   providerInstanceId: Schema.optional(ProviderInstanceId),
   threadId: ThreadId,
+  /** Provider-owned child thread when this event originated from a delegated sub-agent. */
+  subAgentThreadId: Schema.optional(TrimmedNonEmptyStringSchema),
   createdAt: IsoDateTime,
   turnId: Schema.optional(TurnId),
   itemId: Schema.optional(RuntimeItemId),

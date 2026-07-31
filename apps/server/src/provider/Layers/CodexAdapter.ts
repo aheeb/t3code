@@ -471,6 +471,7 @@ function runtimeEventBase(
     eventId: event.id,
     provider: event.provider,
     threadId: canonicalThreadId,
+    ...(event.subAgentThreadId ? { subAgentThreadId: event.subAgentThreadId } : {}),
     createdAt: event.createdAt,
     ...(event.turnId ? { turnId: event.turnId } : {}),
     ...(event.itemId ? { itemId: asRuntimeItemId(event.itemId) } : {}),

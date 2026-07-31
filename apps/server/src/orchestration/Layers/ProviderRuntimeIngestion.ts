@@ -307,10 +307,100 @@ function requestKindFromCanonicalRequestType(
   }
 }
 
+function subAgentTranscriptActivity(
+  event: ProviderRuntimeEvent & { readonly subAgentThreadId: string },
+): OrchestrationThreadActivity | null {
+  const commonItem = {
+    type: "subAgentTranscriptEvent",
+    agentThreadId: event.subAgentThreadId,
+    eventType: event.type,
+    eventId: event.eventId,
+    createdAt: event.createdAt,
+    ...(event.itemId ? { itemId: event.itemId } : {}),
+  } as const;
+
+  const transcriptItem = (() => {
+    switch (event.type) {
+      case "content.delta":
+        if (
+          event.payload.streamKind !== "assistant_text" &&
+          event.payload.streamKind !== "reasoning_text" &&
+          event.payload.streamKind !== "reasoning_summary_text"
+        ) {
+          return null;
+        }
+        return {
+          ...commonItem,
+          streamKind: event.payload.streamKind,
+          delta: event.payload.delta,
+        };
+
+      case "item.started":
+      case "item.updated":
+      case "item.completed":
+        return {
+          ...commonItem,
+          itemType: event.payload.itemType,
+          ...(event.payload.status ? { status: event.payload.status } : {}),
+          ...(event.payload.title ? { title: event.payload.title } : {}),
+          ...(event.payload.detail ? { detail: event.payload.detail } : {}),
+        };
+
+      case "turn.started":
+        return {
+          ...commonItem,
+          ...(event.payload.model ? { model: event.payload.model } : {}),
+          ...(event.payload.effort ? { reasoningEffort: event.payload.effort } : {}),
+        };
+
+      case "turn.completed":
+        return {
+          ...commonItem,
+          state: event.payload.state,
+          ...(event.payload.errorMessage ? { detail: event.payload.errorMessage } : {}),
+        };
+
+      case "runtime.warning":
+      case "runtime.error":
+        return {
+          ...commonItem,
+          detail: event.payload.message,
+        };
+
+      default:
+        return null;
+    }
+  })();
+
+  if (!transcriptItem) {
+    return null;
+  }
+
+  return {
+    id: event.eventId,
+    createdAt: event.createdAt,
+    tone: event.type === "runtime.error" ? "error" : "tool",
+    kind: "subagent.transcript",
+    summary: "Sub-agent activity",
+    payload: {
+      itemType: "collab_agent_tool_call",
+      data: { item: transcriptItem },
+    },
+    turnId: toTurnId(event.turnId) ?? null,
+  };
+}
+
 export function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
   taskTitle?: string,
 ): ReadonlyArray<OrchestrationThreadActivity> {
+  if (event.subAgentThreadId) {
+    const activity = subAgentTranscriptActivity(
+      event as ProviderRuntimeEvent & { readonly subAgentThreadId: string },
+    );
+    return activity ? [activity] : [];
+  }
+
   const maybeSequence = (() => {
     const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
     return eventWithSequence.sessionSequence !== undefined
@@ -699,6 +789,24 @@ const make = Effect.gen(function* () {
   const providerCommandId = (event: ProviderRuntimeEvent, tag: string) =>
     crypto.randomUUIDv4.pipe(
       Effect.map((uuid) => CommandId.make(`provider:${event.eventId}:${tag}:${uuid}`)),
+    );
+
+  const appendRuntimeActivities = (event: ProviderRuntimeEvent, taskTitle?: string) =>
+    Effect.forEach(
+      runtimeEventToActivities(event, taskTitle),
+      (activity) =>
+        providerCommandId(event, "thread-activity-append").pipe(
+          Effect.flatMap((commandId) =>
+            orchestrationEngine.dispatch({
+              type: "thread.activity.append",
+              commandId,
+              threadId: event.threadId,
+              activity,
+              createdAt: activity.createdAt,
+            }),
+          ),
+        ),
+      { discard: true },
     );
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
@@ -1298,6 +1406,11 @@ const make = Effect.gen(function* () {
       const thread = yield* resolveThreadShell(event.threadId);
       if (!thread) return;
 
+      if (event.subAgentThreadId) {
+        yield* appendRuntimeActivities(event);
+        return;
+      }
+
       let loadedThreadDetail: OrchestrationThread | null | undefined;
       const getLoadedThreadDetail = () =>
         Effect.gen(function* () {
@@ -1767,20 +1880,7 @@ const make = Effect.gen(function* () {
         }
       }
 
-      const activities = runtimeEventToActivities(event, taskTitle);
-      yield* Effect.forEach(activities, (activity) =>
-        providerCommandId(event, "thread-activity-append").pipe(
-          Effect.flatMap((commandId) =>
-            orchestrationEngine.dispatch({
-              type: "thread.activity.append",
-              commandId,
-              threadId: thread.id,
-              activity,
-              createdAt: activity.createdAt,
-            }),
-          ),
-        ),
-      ).pipe(Effect.asVoid);
+      yield* appendRuntimeActivities(event, taskTitle);
     });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

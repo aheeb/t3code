@@ -312,14 +312,81 @@ describe("deriveMessagesTimelineRows", () => {
       revertTurnCountByUserMessageId: new Map(),
     });
 
-    const workRow = rows.find((row) => row.kind === "work");
-    expect(workRow?.kind === "work" ? workRow.groupedEntries.map((entry) => entry.id) : []).toEqual(
-      ["spawn", "command-2"],
-    );
+    const workRows = rows.filter((row) => row.kind === "work");
+    expect(workRows.map((row) => row.groupedEntries.map((entry) => entry.id))).toEqual([
+      ["spawn"],
+      ["command-2"],
+    ]);
     expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
       hiddenCount: 1,
       expanded: false,
     });
+  });
+
+  it("collects later child transcript events into one dedicated sub-agent row", () => {
+    const timelineEntries = [
+      {
+        id: "spawn-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:01Z",
+        entry: {
+          id: "spawn",
+          createdAt: "2026-01-01T00:00:01Z",
+          turnId: "turn-1" as never,
+          label: "Spawn sub-agent",
+          tone: "tool" as const,
+          itemType: "collab_agent_tool_call" as const,
+          toolData: { type: "collabAgentToolCall", receiverThreadIds: ["child-1"] },
+        },
+      },
+      {
+        id: "parent-message",
+        kind: "message" as const,
+        createdAt: "2026-01-01T00:00:02Z",
+        message: {
+          id: "parent-message" as never,
+          role: "assistant" as const,
+          text: "The agents are running.",
+          createdAt: "2026-01-01T00:00:02Z",
+          updatedAt: "2026-01-01T00:00:02Z",
+          streaming: false,
+          turnId: "turn-1" as never,
+        },
+      },
+      {
+        id: "child-transcript-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:03Z",
+        entry: {
+          id: "child-transcript",
+          createdAt: "2026-01-01T00:00:03Z",
+          turnId: "turn-1" as never,
+          label: "Sub-agent activity",
+          tone: "tool" as const,
+          itemType: "collab_agent_tool_call" as const,
+          toolData: { type: "subAgentTranscriptEvent", agentThreadId: "child-1" },
+        },
+      },
+    ];
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestTurn: {
+        turnId: "turn-1" as never,
+        state: "running",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+      },
+      isWorking: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    const subAgentRows = rows.filter(
+      (row) => row.kind === "work" && row.id.startsWith("subagents:"),
+    );
+    expect(subAgentRows).toHaveLength(1);
+    expect(subAgentRows[0]?.kind === "work" ? subAgentRows[0].groupedEntries : []).toHaveLength(2);
   });
 
   it("only enables assistant copy for the terminal assistant message in a turn", () => {

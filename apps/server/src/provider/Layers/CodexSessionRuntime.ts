@@ -613,6 +613,11 @@ function rememberCollabReceiverTurns(
     return;
   }
 
+  if (notification.params.item.type === "subAgentActivity") {
+    collabReceiverTurns.set(notification.params.item.agentThreadId, parentTurnId);
+    return;
+  }
+
   if (notification.params.item.type !== "collabAgentToolCall") {
     return;
   }
@@ -620,25 +625,6 @@ function rememberCollabReceiverTurns(
   for (const receiverThreadId of notification.params.item.receiverThreadIds) {
     collabReceiverTurns.set(receiverThreadId, parentTurnId);
   }
-}
-
-function shouldSuppressChildConversationNotification(
-  method: CodexRpc.ServerNotificationMethod,
-): boolean {
-  return (
-    method === "thread/started" ||
-    method === "thread/status/changed" ||
-    method === "thread/archived" ||
-    method === "thread/unarchived" ||
-    method === "thread/closed" ||
-    method === "thread/compacted" ||
-    method === "thread/name/updated" ||
-    method === "thread/tokenUsage/updated" ||
-    method === "turn/started" ||
-    method === "turn/completed" ||
-    method === "turn/plan/updated" ||
-    method === "item/plan/delta"
-  );
 }
 
 function toCodexUserInputAnswer(
@@ -844,18 +830,14 @@ export const makeCodexSessionRuntime = (
         const payload = notification.params;
         const route = readRouteFields(notification);
         const collabReceiverTurns = yield* Ref.get(collabReceiverTurnsRef);
+        const providerConversationId = readNotificationThreadId(notification);
         const childParentTurnId = (() => {
-          const providerConversationId = readNotificationThreadId(notification);
           return providerConversationId
             ? collabReceiverTurns.get(providerConversationId)
             : undefined;
         })();
 
         rememberCollabReceiverTurns(collabReceiverTurns, notification, route.turnId);
-        if (childParentTurnId && shouldSuppressChildConversationNotification(notification.method)) {
-          yield* Ref.set(collabReceiverTurnsRef, collabReceiverTurns);
-          return;
-        }
 
         let requestId: ApprovalRequestId | undefined;
         let requestKind: ProviderRequestKind | undefined;
@@ -887,6 +869,9 @@ export const makeCodexSessionRuntime = (
         yield* emitEvent({
           kind: "notification",
           threadId: options.threadId,
+          ...(childParentTurnId && providerConversationId
+            ? { subAgentThreadId: providerConversationId }
+            : {}),
           method: notification.method,
           ...(turnId ? { turnId } : {}),
           ...(itemId ? { itemId } : {}),

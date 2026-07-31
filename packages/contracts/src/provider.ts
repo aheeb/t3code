@@ -118,6 +118,8 @@ export const ProviderEvent = Schema.Struct({
   // See ProviderSession for the migration story.
   providerInstanceId: Schema.optional(ProviderInstanceId),
   threadId: ThreadId,
+  /** Provider-owned child thread when this event originated from a delegated sub-agent. */
+  subAgentThreadId: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
   method: TrimmedNonEmptyString,
   message: Schema.optional(TrimmedNonEmptyString),

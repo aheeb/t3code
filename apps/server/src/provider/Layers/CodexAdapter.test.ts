@@ -663,6 +663,41 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("keeps the child-agent identity on transcript events", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-child-message-delta"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:01.000Z",
+        method: "item/agentMessage/delta",
+        threadId: asThreadId("thread-1"),
+        subAgentThreadId: "child-1",
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("child-message-1"),
+        textDelta: "Inspecting the event pipeline.",
+        payload: {
+          threadId: "child-1",
+          turnId: "child-turn-1",
+          itemId: "child-message-1",
+          delta: "Inspecting the event pipeline.",
+        },
+      });
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "content.delta") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.subAgentThreadId, "child-1");
+      NodeAssert.equal(firstEvent.value.payload.streamKind, "assistant_text");
+      NodeAssert.equal(firstEvent.value.payload.delta, "Inspecting the event pipeline.");
+    }),
+  );
+
   it.effect("maps completed plan items to canonical proposed-plan completion events", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();

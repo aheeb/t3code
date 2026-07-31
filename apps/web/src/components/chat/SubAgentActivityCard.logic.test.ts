@@ -97,4 +97,44 @@ describe("deriveSubAgentActivityView", () => {
   it("returns null for unrelated tool data", () => {
     expect(deriveSubAgentActivityView([{ toolData: { type: "mcpToolCall" } }])).toBeNull();
   });
+
+  it("keeps child messages in the selected agent transcript", () => {
+    const view = deriveSubAgentActivityView([
+      {
+        id: "spawn",
+        createdAt: "2026-01-01T00:00:00Z",
+        toolData: {
+          type: "collabAgentToolCall",
+          tool: "spawnAgent",
+          status: "completed",
+          receiverThreadIds: ["thread-worker"],
+          prompt: "Inspect the repository.",
+        },
+      },
+      ...["I am ", "inspecting it now."].map((delta, index) => ({
+        id: `delta-${index}`,
+        createdAt: `2026-01-01T00:00:0${index + 1}Z`,
+        toolData: {
+          type: "subAgentTranscriptEvent",
+          agentThreadId: "thread-worker",
+          eventType: "content.delta",
+          eventId: `delta-${index}`,
+          itemId: "message-1",
+          streamKind: "assistant_text",
+          delta,
+        },
+      })),
+    ]);
+
+    expect(view?.agents[0]?.transcript).toEqual([
+      {
+        id: "message-1",
+        createdAt: "2026-01-01T00:00:01Z",
+        kind: "assistant",
+        title: null,
+        text: "I am inspecting it now.",
+        status: "inProgress",
+      },
+    ]);
+  });
 });

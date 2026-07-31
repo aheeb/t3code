@@ -108,7 +108,12 @@ function projectCollabAgentData(
   data: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const item = asRecord(data.item);
-  if (!item || (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity")) {
+  if (
+    !item ||
+    (item.type !== "collabAgentToolCall" &&
+      item.type !== "subAgentActivity" &&
+      item.type !== "subAgentTranscriptEvent")
+  ) {
     return undefined;
   }
 
@@ -126,7 +131,24 @@ function projectCollabAgentData(
           "reasoningEffort",
           "agentsStates",
         ]
-      : ["id", "agentPath", "agentThreadId", "kind"];
+      : item.type === "subAgentActivity"
+        ? ["id", "agentPath", "agentThreadId", "kind"]
+        : [
+            "agentThreadId",
+            "eventType",
+            "eventId",
+            "createdAt",
+            "itemId",
+            "streamKind",
+            "delta",
+            "itemType",
+            "status",
+            "title",
+            "detail",
+            "state",
+            "model",
+            "reasoningEffort",
+          ];
 
   for (const field of retainedFields) {
     if (field in item) {
