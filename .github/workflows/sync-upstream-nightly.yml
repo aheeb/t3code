@@ -1,0 +1,111 @@
+name: Sync upstream nightly
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream-nightly
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Rebase fork onto latest nightly
+    if: github.repository == 'aheeb/t3code'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout fork main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - id: resolve
+        name: Resolve latest upstream nightly
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          latest_tag="$(gh api repos/pingdotgg/t3code/releases \
+            --jq '[.[] | select(.prerelease == true and (.tag_name | contains("-nightly.")))] | first | .tag_name')"
+          if [[ -z "$latest_tag" || "$latest_tag" == "null" ]]; then
+            echo "No upstream nightly release was found." >&2
+            exit 1
+          fi
+
+          git remote add upstream https://github.com/pingdotgg/t3code.git 2>/dev/null || \
+            git remote set-url upstream https://github.com/pingdotgg/t3code.git
+          git fetch upstream main --tags --force
+
+          target_sha="$(git rev-parse "$latest_tag^{commit}")"
+          echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor "$target_sha" HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Fork already contains $latest_tag ($target_sha)."
+            exit 0
+          fi
+
+          previous_base="$(git merge-base HEAD upstream/main)"
+          if ! git merge-base --is-ancestor "$previous_base" "$target_sha"; then
+            echo "Latest nightly $latest_tag is not a descendant of the current fork base." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rebase --onto "$target_sha" "$previous_base" main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Vite+
+        if: steps.resolve.outputs.changed == 'true'
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Check
+        if: steps.resolve.outputs.changed == 'true'
+        run: vp check
+
+      - name: Typecheck
+        if: steps.resolve.outputs.changed == 'true'
+        run: vp run typecheck
+
+      - name: Push rebased fork
+        if: steps.resolve.outputs.changed == 'true'
+        run: git push --force-with-lease origin HEAD:main
+
+      - name: Open an issue when synchronization fails
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_TAG: ${{ steps.resolve.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          tag="${NIGHTLY_TAG:-latest nightly}"
+          title="Nightly sync failed for $tag"
+          existing_issue="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing_issue" ]]; then
+            gh issue comment "$existing_issue" --body "The synchronization failed again: $RUN_URL"
+            exit 0
+          fi
+
+          gh issue create \
+            --title "$title" \
+            --body "The fork could not safely rebase the sub-agent view onto **$tag**, or the required checks failed. The fork branch was left unchanged. Review the failed run and resolve the conflict before retrying.\n\nRun: $RUN_URL"

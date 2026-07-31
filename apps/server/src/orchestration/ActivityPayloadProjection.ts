@@ -104,6 +104,39 @@ function projectCommandData(data: Record<string, unknown>): Record<string, unkno
   return Object.keys(projectedItem).length > 0 ? projectedItem : undefined;
 }
 
+function projectCollabAgentData(
+  data: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const item = asRecord(data.item);
+  if (!item || (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity")) {
+    return undefined;
+  }
+
+  const projectedItem: Record<string, unknown> = { type: item.type };
+  const retainedFields =
+    item.type === "collabAgentToolCall"
+      ? [
+          "id",
+          "tool",
+          "status",
+          "senderThreadId",
+          "receiverThreadIds",
+          "prompt",
+          "model",
+          "reasoningEffort",
+          "agentsStates",
+        ]
+      : ["id", "agentPath", "agentThreadId", "kind"];
+
+  for (const field of retainedFields) {
+    if (field in item) {
+      projectedItem[field] = item[field];
+    }
+  }
+
+  return { item: projectedItem };
+}
+
 function summarizeToolTextOutput(value: string): string | null {
   const lines: string[] = [];
   for (const rawLine of value.split(/\r?\n/u)) {
@@ -162,6 +195,19 @@ export function projectActivityPayload(
   const data = asRecord(payload?.data);
   if (!payload || !data || payload.itemType === "mcp_tool_call") {
     return activity;
+  }
+
+  if (payload.itemType === "collab_agent_tool_call") {
+    const projectedData = projectCollabAgentData(data);
+    return projectedData
+      ? {
+          ...activity,
+          payload: {
+            ...payload,
+            data: projectedData,
+          },
+        }
+      : activity;
   }
 
   const projectedData: Record<string, unknown> = {};

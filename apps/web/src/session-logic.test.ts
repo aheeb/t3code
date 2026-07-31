@@ -995,6 +995,49 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.toolData).toEqual(item);
   });
 
+  it("shows in-progress collaboration calls and collapses their lifecycle by item id", () => {
+    const startedItem = {
+      type: "collabAgentToolCall",
+      id: "spawn-1",
+      tool: "spawnAgent",
+      status: "inProgress",
+      receiverThreadIds: ["child-1"],
+      agentsStates: { "child-1": { status: "pendingInit" } },
+    };
+    const completedItem = {
+      ...startedItem,
+      status: "completed",
+      agentsStates: { "child-1": { status: "running" } },
+    };
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "collab-start",
+        kind: "tool.started",
+        summary: "Spawn sub-agent started",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          status: "inProgress",
+          data: { item: startedItem },
+        },
+      }),
+      makeActivity({
+        id: "collab-complete",
+        kind: "tool.completed",
+        summary: "Spawn sub-agent",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          status: "completed",
+          data: { item: completedItem },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.toolLifecycleStatus).toBe("completed");
+    expect(entries[0]?.toolData).toEqual(completedItem);
+  });
+
   it("unwraps PowerShell command wrappers for displayed command text", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

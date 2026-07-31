@@ -62,6 +62,7 @@ import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesCard } from "./ChangedFilesTree";
+import { SubAgentActivityCard } from "./SubAgentActivityCard";
 import { shouldAutoExpandChangedFiles } from "./changedFilesPresentation";
 import { MessageCopyButton } from "./MessageCopyButton";
 import {
@@ -1155,27 +1156,42 @@ const WorkGroupSection = memo(function WorkGroupSection({
 }) {
   const { workspaceRoot } = use(TimelineRowCtx);
   const nonEmptyEntries = useMemo(
-    () => groupedEntries.filter((entry) => !workEntryIndicatesToolNeutralStatus(entry)),
+    () =>
+      groupedEntries.filter(
+        (entry) =>
+          entry.itemType === "collab_agent_tool_call" ||
+          !workEntryIndicatesToolNeutralStatus(entry),
+      ),
     [groupedEntries],
   );
-  const onlyToolEntries = nonEmptyEntries.every((entry) => workLogEntryIsToolLike(entry));
-  const groupLabel = onlyToolEntries
-    ? nonEmptyEntries.length === 1
-      ? "1 tool call"
-      : `${nonEmptyEntries.length} tool calls`
-    : "Work Log";
+  const subAgentEntries = nonEmptyEntries.filter(
+    (entry) => entry.itemType === "collab_agent_tool_call",
+  );
+  const regularEntries = nonEmptyEntries.filter(
+    (entry) => entry.itemType !== "collab_agent_tool_call",
+  );
+  const onlyToolEntries = regularEntries.every((entry) => workLogEntryIsToolLike(entry));
+  const groupLabel =
+    subAgentEntries.length > 0 && regularEntries.length === 0
+      ? "Sub-agent activity"
+      : onlyToolEntries
+        ? regularEntries.length === 1
+          ? "1 tool call"
+          : `${regularEntries.length} tool calls`
+        : "Work Log";
 
   if (nonEmptyEntries.length === 0) return null;
 
   return (
-    <section className="-mx-1 space-y-0.5 px-1 py-0.5" aria-label={groupLabel}>
-      {!onlyToolEntries && (
+    <section className="-mx-1 space-y-1.5 px-1 py-0.5" aria-label={groupLabel}>
+      {subAgentEntries.length > 0 ? <SubAgentActivityCard entries={subAgentEntries} /> : null}
+      {!onlyToolEntries && regularEntries.length > 0 && (
         <p className="px-0.5 pb-0.5 font-medium text-[11px] text-muted-foreground/65">
           {groupLabel}
         </p>
       )}
       <div className="space-y-px">
-        {nonEmptyEntries.map((workEntry) => (
+        {regularEntries.map((workEntry) => (
           <SimpleWorkEntryRow
             key={workEntry.id}
             workEntry={workEntry}

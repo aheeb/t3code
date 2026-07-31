@@ -188,6 +188,48 @@ describe("projectActivityPayload", () => {
     expect(projectActivityPayload(fixtures[4]!)).toBe(fixtures[4]);
   });
 
+  it("retains the bounded collaboration fields used by the sub-agent view", () => {
+    const activity = makeActivity("collab-structured", "collab_agent_tool_call", {
+      threadId: "parent-thread",
+      turnId: "parent-turn",
+      item: {
+        type: "collabAgentToolCall",
+        id: "spawn-1",
+        tool: "spawnAgent",
+        status: "completed",
+        senderThreadId: "parent-thread",
+        receiverThreadIds: ["child-thread"],
+        prompt: "Inspect the event pipeline.",
+        model: "gpt-5.6-terra",
+        reasoningEffort: "high",
+        agentsStates: {
+          "child-thread": { status: "running", message: null },
+        },
+        ignored: "bulk field",
+      },
+      ignored: "bulk data",
+    });
+
+    expect(projectActivityPayload(activity).payload).toMatchObject({
+      data: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "spawn-1",
+          tool: "spawnAgent",
+          receiverThreadIds: ["child-thread"],
+          prompt: "Inspect the event pipeline.",
+          agentsStates: {
+            "child-thread": { status: "running", message: null },
+          },
+        },
+      },
+    });
+    expect(
+      (projectActivityPayload(activity).payload as { data: { item: Record<string, unknown> } }).data
+        .item,
+    ).not.toHaveProperty("ignored");
+  });
+
   it("keeps current web and mobile derived output identical for every tool item type", () => {
     for (const activity of fixtures) {
       const projected = projectActivityPayload(activity);

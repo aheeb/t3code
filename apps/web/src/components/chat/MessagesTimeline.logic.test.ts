@@ -261,6 +261,67 @@ describe("resolveAssistantMessageCopyState", () => {
 });
 
 describe("deriveMessagesTimelineRows", () => {
+  it("keeps active sub-agent activity visible while collapsing older regular tools", () => {
+    const timelineEntries = [
+      {
+        id: "spawn-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:01Z",
+        entry: {
+          id: "spawn",
+          createdAt: "2026-01-01T00:00:01Z",
+          turnId: "turn-1" as never,
+          label: "Spawn sub-agent",
+          tone: "tool" as const,
+          itemType: "collab_agent_tool_call" as const,
+          toolLifecycleStatus: "inProgress" as const,
+          toolData: {
+            type: "collabAgentToolCall",
+            tool: "spawnAgent",
+            status: "inProgress",
+            receiverThreadIds: ["child-1"],
+          },
+        },
+      },
+      ...[1, 2].map((index) => ({
+        id: `command-entry-${index}`,
+        kind: "work" as const,
+        createdAt: `2026-01-01T00:00:0${index + 1}Z`,
+        entry: {
+          id: `command-${index}`,
+          createdAt: `2026-01-01T00:00:0${index + 1}Z`,
+          turnId: "turn-1" as never,
+          label: `Command ${index}`,
+          tone: "tool" as const,
+          itemType: "command_execution" as const,
+          toolLifecycleStatus: "completed" as const,
+        },
+      })),
+    ];
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries,
+      latestTurn: {
+        turnId: "turn-1" as never,
+        state: "running",
+        startedAt: "2026-01-01T00:00:00Z",
+        completedAt: null,
+      },
+      isWorking: true,
+      activeTurnStartedAt: "2026-01-01T00:00:00Z",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+
+    const workRow = rows.find((row) => row.kind === "work");
+    expect(workRow?.kind === "work" ? workRow.groupedEntries.map((entry) => entry.id) : []).toEqual(
+      ["spawn", "command-2"],
+    );
+    expect(rows.find((row) => row.kind === "work-toggle")).toMatchObject({
+      hiddenCount: 1,
+      expanded: false,
+    });
+  });
+
   it("only enables assistant copy for the terminal assistant message in a turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [

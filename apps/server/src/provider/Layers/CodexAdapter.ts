@@ -226,6 +226,7 @@ function toCanonicalItemType(raw: string | undefined | null): CanonicalItemType 
     return "file_change";
   if (type.includes("mcp")) return "mcp_tool_call";
   if (type.includes("dynamic tool")) return "dynamic_tool_call";
+  if (type.includes("sub agent activity")) return "collab_agent_tool_call";
   if (type.includes("collab")) return "collab_agent_tool_call";
   if (type.includes("web search")) return "web_search";
   if (type.includes("image")) return "image_view";
@@ -239,6 +240,33 @@ function toCanonicalItemType(raw: string | undefined | null): CanonicalItemType 
 function itemTitle(itemType: CanonicalItemType, item?: CodexLifecycleItem): string | undefined {
   if (itemType === "mcp_tool_call" && item?.type === "mcpToolCall") {
     return `${item.server} · ${item.tool}`;
+  }
+  if (itemType === "collab_agent_tool_call") {
+    if (item?.type === "subAgentActivity") {
+      switch (item.kind) {
+        case "started":
+          return "Sub-agent started";
+        case "interacted":
+          return "Sub-agent contacted";
+        case "interrupted":
+          return "Sub-agent interrupted";
+      }
+    }
+    if (item?.type === "collabAgentToolCall") {
+      switch (item.tool) {
+        case "spawnAgent":
+          return "Spawn sub-agent";
+        case "sendInput":
+          return "Message sub-agent";
+        case "resumeAgent":
+          return "Resume sub-agent";
+        case "wait":
+          return "Wait for sub-agents";
+        case "closeAgent":
+          return "Close sub-agent";
+      }
+    }
+    return "Sub-agent activity";
   }
   switch (itemType) {
     case "assistant_message":

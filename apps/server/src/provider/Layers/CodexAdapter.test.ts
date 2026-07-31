@@ -613,6 +613,56 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps collaboration items to structured sub-agent lifecycle events", () =>
+    Effect.gen(function* () {
+      const { adapter, runtime } = yield* startLifecycleRuntime();
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      yield* runtime.emit({
+        id: asEventId("evt-collab-complete"),
+        kind: "notification",
+        provider: ProviderDriverKind.make("codex"),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        method: "item/completed",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("spawn-1"),
+        payload: {
+          completedAtMs: 1_778_000_000_000,
+          threadId: "thread-1",
+          turnId: "turn-1",
+          item: {
+            type: "collabAgentToolCall",
+            id: "spawn-1",
+            tool: "spawnAgent",
+            status: "completed",
+            senderThreadId: "thread-1",
+            receiverThreadIds: ["child-1"],
+            prompt: "Inspect the event pipeline.",
+            model: "gpt-5.6-terra",
+            reasoningEffort: "high",
+            agentsStates: {
+              "child-1": { status: "running", message: null },
+            },
+          },
+        },
+      });
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      NodeAssert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some" || firstEvent.value.type !== "item.completed") {
+        return;
+      }
+      NodeAssert.equal(firstEvent.value.payload.itemType, "collab_agent_tool_call");
+      NodeAssert.equal(firstEvent.value.payload.title, "Spawn sub-agent");
+      NodeAssert.deepStrictEqual(
+        (firstEvent.value.payload.data as { item: { receiverThreadIds: string[] } }).item
+          .receiverThreadIds,
+        ["child-1"],
+      );
+    }),
+  );
+
   it.effect("maps completed plan items to canonical proposed-plan completion events", () =>
     Effect.gen(function* () {
       const { adapter, runtime } = yield* startLifecycleRuntime();
